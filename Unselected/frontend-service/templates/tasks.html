@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks - Task Management System{% endblock %}
+
+{% block content %}
+<div class="tasks-page">
+    <div class="page-header">
+        <h2>Tasks</h2>
+        <button class="btn btn-primary" onclick="showCreateTaskModal()">Create New Task</button>
+    </div>
+    
+    <div class="tasks-list">
+        {% for task in tasks %}
+        <div class="task-card" data-task-id="{{ task.id }}">
+            <div class="task-header">
+                <h3>{{ task.title }}</h3>
+                <span class="task-status status-{{ task.status }}">{{ task.status|replace('_', ' ')|title }}</span>
+            </div>
+            <p class="task-description">{{ task.description or 'No description' }}</p>
+            <div class="task-meta">
+                <span class="task-priority priority-{{ task.priority }}">{{ task.priority|title }}</span>
+                {% if task.due_date %}
+                <span class="task-due-date">Due: {{ task.due_date[:10] }}</span>
+                {% endif %}
+                {% if task.assigned_to %}
+                {% set assigned_user = users|selectattr('id', 'equalto', task.assigned_to)|first %}
+                <span class="task-assignee">Assigned to: {{ assigned_user.username if assigned_user else 'User ID ' + task.assigned_to|string }}</span>
+                {% else %}
+                <span class="task-assignee">Unassigned</span>
+                {% endif %}
+            </div>
+            <div class="task-actions">
+                <button class="btn btn-sm" onclick="editTask({{ task.id }})">Edit</button>
+                <button class="btn btn-sm" onclick="assignTask({{ task.id }})">Assign</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteTask({{ task.id }})">Delete</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Create/Edit Task Modal -->
+<div id="taskModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeTaskModal()">&times;</span>
+        <h3 id="modalTitle">Create Task</h3>
+        <form id="taskForm">
+            <input type="hidden" id="taskId">
+            <div class="form-group">
+                <label for="taskTitle">Title *</label>
+                <input type="text" id="taskTitle" required>
+            </div>
+            <div class="form-group">
+                <label for="taskDescription">Description</label>
+                <textarea id="taskDescription" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+                <label for="taskPriority">Priority</label>
+                <select id="taskPriority">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="taskDueDate">Due Date</label>
+                <input type="datetime-local" id="taskDueDate">
+            </div>
+            <div class="form-group">
+                <label for="taskStatus">Status</label>
+                <select id="taskStatus">
+                    <option value="pending">Pending</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="taskAssignee">Assign To</label>
+                <select id="taskAssignee">
+                    <option value="">Unassigned</option>
+                    {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="button" class="btn" onclick="closeTaskModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('taskForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        saveTask();
+    });
+</script>
+{% endblock %}
+

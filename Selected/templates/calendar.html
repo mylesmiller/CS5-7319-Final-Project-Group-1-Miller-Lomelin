@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar - Task Management System{% endblock %}
+
+{% block content %}
+<div class="calendar-page">
+    <h2>Calendar View</h2>
+    <div id="calendar"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Simple calendar implementation
+    document.addEventListener('DOMContentLoaded', function() {
+        const tasks = {{ tasks|tojson }};
+        renderCalendar(tasks);
+    });
+</script>
+{% endblock %}
+

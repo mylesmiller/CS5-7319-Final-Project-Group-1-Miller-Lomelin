@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Task Management System{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h2>Dashboard</h2>
+    
+    <div class="dashboard-stats">
+        <div class="stat-card">
+            <h3>Total Tasks</h3>
+            <p class="stat-number">{{ tasks|length }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Pending</h3>
+            <p class="stat-number">{{ tasks|selectattr('status', 'equalto', 'pending')|list|length if tasks else 0 }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>In Progress</h3>
+            <p class="stat-number">{{ tasks|selectattr('status', 'equalto', 'in_progress')|list|length if tasks else 0 }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Completed</h3>
+            <p class="stat-number">{{ tasks|selectattr('status', 'equalto', 'completed')|list|length if tasks else 0 }}</p>
+        </div>
+    </div>
+    
+    <div class="dashboard-sections">
+        <div class="section">
+            <h3>Upcoming Deadlines</h3>
+            <div class="notifications">
+                {% if notifications %}
+                    {% for notification in notifications %}
+                    <div class="notification alert" data-due-date="{{ notification.get('due_date', '') }}" data-task-id="{{ notification.get('task_id', '') }}" data-task-title="{{ notification.get('task_title', 'Task') }}">
+                        <strong class="notification-message">{{ notification.get('message', '') }}</strong>
+                        {% if notification.get('due_date') %}
+                        <span class="notification-date">Due: {{ notification.due_date[:10] }}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No upcoming deadlines</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>Recent Activity</h3>
+            <div class="activity-log">
+                {% if recent_activity %}
+                    {% for activity in recent_activity %}
+                    <div class="activity-item">
+                        <span class="activity-action">{{ activity.get('action', '')|title }}</span>
+                        <span class="activity-description">{{ activity.get('description', '') }}</span>
+                        <span class="activity-time">{{ activity.get('created_at', '')[:19] }}</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No recent activity</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Real-time countdown for deadline notifications
+document.addEventListener('DOMContentLoaded', function() {
+    const notifications = document.querySelectorAll('.notification[data-due-date]');
+    
+    function updateCountdowns() {
+        notifications.forEach(function(notification) {
+            const dueDateStr = notification.getAttribute('data-due-date');
+            const taskTitle = notification.getAttribute('data-task-title') || 'Task';
+            const messageElement = notification.querySelector('.notification-message');
+            
+            if (!dueDateStr) return;
+            
+            const dueDate = new Date(dueDateStr);
+            const now = new Date();
+            const timeRemaining = dueDate - now;
+            
+            if (timeRemaining <= 0) {
+                messageElement.textContent = `Task "${taskTitle}" is overdue!`;
+                return;
+            }
+            
+            // Calculate time components
+            const totalSeconds = Math.floor(timeRemaining / 1000);
+            const days = Math.floor(totalSeconds / 86400);
+            const hours = Math.floor((totalSeconds % 86400) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            
+            // Format message based on time remaining
+            let message;
+            if (days > 0) {
+                message = `Task "${taskTitle}" is due in ${days} day(s)`;
+            } else if (hours > 0) {
+                message = `Task "${taskTitle}" is due in ${hours} hour(s), ${minutes} minute(s)`;
+            } else if (minutes > 0) {
+                message = `Task "${taskTitle}" is due in ${minutes} minute(s), ${seconds} second(s)`;
+            } else {
+                message = `Task "${taskTitle}" is due in ${seconds} second(s)`;
+            }
+            
+            messageElement.textContent = message;
+        });
+    }
+    
+    // Update immediately
+    updateCountdowns();
+    
+    // Update every second
+    setInterval(updateCountdowns, 1000);
+});
+</script>
+{% endblock %}
+

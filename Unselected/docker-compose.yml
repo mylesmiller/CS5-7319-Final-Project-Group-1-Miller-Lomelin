@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    ports:
+      - "5002:5002"
+    environment:
+      - DATABASE_URL=sqlite:///user_service.db
+      - SECRET_KEY=user-service-secret-key
+    volumes:
+      - user-service-db:/app
+    networks:
+      - task-manager-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5002/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  task-service:
+    build: ./task-service
+    container_name: task-service
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=sqlite:///task_service.db
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5001
+      - USER_SERVICE_URL=http://user-service:5002
+      - SECRET_KEY=task-service-secret-key
+    volumes:
+      - task-service-db:/app
+    networks:
+      - task-manager-network
+    depends_on:
+      - user-service
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports:
+      - "5001:5001"
+    environment:
+      - SECRET_KEY=notification-service-secret-key
+      - SMTP_ENABLED=false
+      - SMTP_SERVER=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=
+      - SMTP_PASSWORD=
+    networks:
+      - task-manager-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend-service:
+    build: ./frontend-service
+    container_name: frontend-service
+    ports:
+      - "5003:5003"
+    environment:
+      - TASK_SERVICE_URL=http://task-service:5000
+      - USER_SERVICE_URL=http://user-service:5002
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5001
+      - SECRET_KEY=frontend-service-secret-key
+    networks:
+      - task-manager-network
+    depends_on:
+      - user-service
+      - task-service
+      - notification-service
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5003/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  task-service-db:
+  user-service-db:
+
+networks:
+  task-manager-network:
+    driver: bridge
+
