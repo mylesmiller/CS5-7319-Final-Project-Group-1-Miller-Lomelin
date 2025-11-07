@@ -538,6 +538,684 @@ This project implements a task management system using two different architectur
 | **Deployment Frequency** | Single deployment | Multiple deployments |
 | **Learning Curve** | Low | Medium-High |
 
+### Detailed Implementation Differences
+
+This section provides an in-depth analysis of the implementation differences between the Layered Monolith and Microservices architectures, covering source code structure, reusable components, communication mechanisms, and architectural patterns.
+
+#### 1. Source Code Structure and Organization
+
+##### Layered Monolith Architecture (`Selected/`)
+
+**File Structure:**
+```
+Selected/
+├── app.py                    # Application factory and entry point
+├── config.py                 # Configuration management
+├── models.py                 # SQLAlchemy models (User, Task, ActivityLog)
+├── routes.py                 # Route handlers (Controller/Presentation layer)
+├── database/
+│   ├── __init__.py
+│   └── repositories.py       # Repository pattern (Data Access layer)
+├── services/
+│   ├── __init__.py
+│   ├── task_service.py       # Business logic for tasks
+│   └── notification_service.py  # Business logic for notifications
+├── templates/                # Jinja2 HTML templates
+├── static/                   # CSS and JavaScript files
+└── tests/                    # Unit and integration tests
+```
+
+**Key Implementation Characteristics:**
+
+1. **Single Application Entry Point (`app.py`)**:
+   - Uses Flask application factory pattern (`create_app()`)
+   - Single database initialization (`db.init_app(app)`)
+   - All routes registered in one place via `register_routes(app)`
+   - Single Flask application instance handles all requests
+
+2. **Unified Models (`models.py`)**:
+   - All domain models (User, Task, ActivityLog) in one file
+   - SQLAlchemy relationships defined directly (e.g., `Task.assigned_to` foreign key to `User.id`)
+   - Direct object relationships: `task.assignee` provides direct access to User object
+   - Single database session manages all entities
+
+3. **Repository Pattern (`database/repositories.py`)**:
+   - Three repository classes: `TaskRepository`, `UserRepository`, `ActivityLogRepository`
+   - All repositories share the same database connection (`db.session`)
+   - Static methods for all operations (no instance state)
+   - Direct SQLAlchemy query access: `Task.query.get(id)`
+   - Transactions managed at the repository level with `db.session.commit()`
+
+4. **Service Layer (`services/`)**:
+   - `TaskService`: Contains all business logic for task operations
+   - `NotificationService`: Handles notification generation logic
+   - Services call repositories directly (in-process function calls)
+   - No network communication required
+   - Business logic can orchestrate multiple repository calls atomically
+
+5. **Route Handlers (`routes.py`)**:
+   - All HTTP endpoints defined in single file
+   - Routes call service layer methods directly
+   - Direct access to models and repositories if needed
+   - Single error handling context
+
+##### Microservices Architecture (`Unselected/`)
+
+**File Structure:**
+```
+Unselected/
+├── docker-compose.yml        # Service orchestration
+├── user-service/
+│   ├── app.py               # User Service Flask application
+│   ├── models.py            # User model only
+│   ├── config.py            # Service-specific configuration
+│   └── Dockerfile           # Container definition
+├── task-service/
+│   ├── app.py               # Task Service Flask application
+│   ├── models.py            # Task and ActivityLog models
+│   ├── config.py            # Service-specific configuration
+│   └── Dockerfile
+├── notification-service/
+│   ├── app.py               # Notification Service Flask application
+│   └── Dockerfile
+└── frontend-service/
+    ├── app.py               # Frontend aggregation service
+    ├── templates/           # Jinja2 templates
+    ├── static/              # CSS and JavaScript
+    └── Dockerfile
+```
+
+**Key Implementation Characteristics:**
+
+1. **Multiple Independent Applications**:
+   - Each service has its own `app.py` with Flask application instance
+   - Each service initializes its own database connection
+   - Services run in separate processes/containers
+   - Each service has its own port (5000, 5001, 5002, 5003)
+
+2. **Distributed Models**:
+   - **User Service**: Only `User` model
+   - **Task Service**: `Task` and `ActivityLog` models (no User model)
+   - **Notification Service**: No persistent models (in-memory storage)
+   - Models cannot reference each other directly (no foreign keys across services)
+   - User IDs stored as integers in Task Service, not as relationships
+
+3. **No Repository Pattern**:
+   - Direct SQLAlchemy queries in route handlers
+   - Each service queries only its own database
+   - No abstraction layer between routes and database
+   - Simpler structure per service (fewer layers)
+
+4. **Service-Specific Business Logic**:
+   - Business logic embedded in route handlers
+   - Each service handles only its domain logic
+   - Cross-service operations require HTTP calls
+   - No shared business logic between services
+
+5. **Frontend Service as API Gateway**:
+   - Aggregates data from multiple backend services
+   - Makes HTTP requests to Task, User, and Notification services
+   - Renders templates with aggregated data
+   - Handles service failures gracefully
+
+#### 2. Communication Mechanisms
+
+##### Layered Monolith: In-Process Function Calls
+
+**Implementation Pattern:**
+```python
+# routes.py (Controller)
+@app.route('/api/tasks', methods=['POST'])
+def create_task():
+    # Direct function call to service layer
+    task = TaskService.create_task(...)
+    return jsonify(task.to_dict())
+
+# services/task_service.py (Service)
+@staticmethod
+def create_task(...):
+    # Direct function call to repository
+    task = TaskRepository.create(...)
+    # Direct function call to another repository
+    ActivityLogRepository.create(...)
+    return task
+
+# database/repositories.py (Repository)
+@staticmethod
+def create(...):
+    # Direct database access
+    task = Task(...)
+    db.session.add(task)
+    db.session.commit()
+    return task
+```
+
+**Characteristics:**
+- **Zero Network Overhead**: All communication is in-process function calls
+- **Synchronous Execution**: Operations execute sequentially in same thread
+- **Exception Propagation**: Exceptions bubble up naturally through call stack
+- **Transaction Management**: Single database transaction can span multiple operations
+- **Type Safety**: Python type hints and IDE support work across layers
+- **Performance**: Sub-millisecond latency between layers
+
+##### Microservices: HTTP REST API Calls
+
+**Implementation Pattern:**
+```python
+# frontend-service/app.py
+def get_from_service(url, endpoint):
+    response = requests.get(f'{url}{endpoint}', timeout=5)
+    return response.json()
+
+@app.route('/tasks')
+def tasks():
+    # HTTP GET request to Task Service
+    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks')
+    # HTTP GET request to User Service
+    users = get_from_service(USER_SERVICE_URL, '/api/users')
+    return render_template('tasks.html', tasks=tasks, users=users)
+
+# task-service/app.py
+@app.route('/api/tasks/<int:task_id>/assign', methods=['POST'])
+def assign_task(task_id):
+    # HTTP GET request to User Service to validate user
+    user = get_user_from_service(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    # Local database operation
+    task.assigned_to = user_id
+    db.session.commit()
+    # HTTP POST request to Notification Service
+    notify_notification_service('task_assigned', {...})
+    return jsonify(task.to_dict())
+```
+
+**Characteristics:**
+- **Network Overhead**: Each service call requires HTTP request/response (1-10ms latency)
+- **Asynchronous Potential**: Can use async HTTP libraries, but implemented synchronously
+- **Error Handling**: Must handle network failures, timeouts, service unavailability
+- **Serialization**: Data must be JSON-serialized for transmission
+- **Service Discovery**: Uses Docker service names (e.g., `user-service:5002`)
+- **Timeout Management**: Each HTTP call has timeout (2-5 seconds)
+- **Retry Logic**: Can implement retry mechanisms for failed requests
+
+**Service Communication Examples:**
+
+1. **Task Service → User Service**:
+   ```python
+   # In task-service/app.py
+   def get_user_from_service(user_id):
+       user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+       response = requests.get(f'{user_service_url}/api/users/{user_id}', timeout=2)
+       return response.json() if response.status_code == 200 else None
+   ```
+
+2. **Task Service → Notification Service**:
+   ```python
+   def notify_notification_service(event_type, payload):
+       notification_service_url = os.environ.get('NOTIFICATION_SERVICE_URL', 'http://notification-service:5001')
+       requests.post(f'{notification_service_url}/api/events', json={
+           'event_type': event_type,
+           'payload': payload,
+           'timestamp': datetime.utcnow().isoformat()
+       }, timeout=2)
+   ```
+
+3. **Frontend Service → All Backend Services**:
+   ```python
+   # Aggregates data from multiple services
+   tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks')
+   users = get_from_service(USER_SERVICE_URL, '/api/users')
+   notifications = get_from_service(NOTIFICATION_SERVICE_URL, '/api/notifications')
+   ```
+
+#### 3. Data Access Patterns
+
+##### Layered Monolith: Repository Pattern with Shared Database
+
+**Implementation:**
+```python
+# database/repositories.py
+class TaskRepository:
+    @staticmethod
+    def create(title, description, priority='medium', due_date=None, assigned_to=None, created_by=None):
+        task = Task(
+            title=title,
+            description=description,
+            priority=priority,
+            due_date=due_date,
+            assigned_to=assigned_to,  # Foreign key to User.id
+            created_by=created_by
+        )
+        db.session.add(task)
+        db.session.commit()
+        return task
+    
+    @staticmethod
+    def get_by_id_or_404(task_id):
+        return Task.query.get_or_404(task_id)  # Can use relationships
+
+# Usage in service layer
+task = TaskRepository.get_by_id_or_404(task_id)
+user = task.assignee  # Direct relationship access via SQLAlchemy
+```
+
+**Key Features:**
+- **Foreign Key Relationships**: `Task.assigned_to` is a foreign key to `User.id`
+- **ORM Relationships**: SQLAlchemy relationships enable `task.assignee` direct access
+- **Join Queries**: Can perform joins across tables in single query
+- **ACID Transactions**: All operations within single transaction
+- **Single Database Connection**: All repositories share `db.session`
+- **Data Consistency**: Database enforces referential integrity
+
+##### Microservices: Direct Queries with Service Boundaries
+
+**Implementation:**
+```python
+# task-service/app.py
+@app.route('/api/tasks', methods=['POST'])
+def create_task():
+    # No foreign key - just store integer ID
+    task = Task(
+        title=data['title'],
+        assigned_to=data.get('assigned_to'),  # Just an integer, not a foreign key
+        created_by=data.get('created_by')
+    )
+    # Must validate user exists via HTTP call
+    if data.get('assigned_to'):
+        if not validate_user_id(data['assigned_to']):
+            return jsonify({'error': 'Invalid assigned_to user ID'}), 400
+    db.session.add(task)
+    db.session.commit()
+    return jsonify(task.to_dict())
+
+# No direct relationship access
+# Must make HTTP call to get user details
+def get_user_from_service(user_id):
+    response = requests.get(f'{user_service_url}/api/users/{user_id}')
+    return response.json()
+```
+
+**Key Features:**
+- **No Foreign Keys Across Services**: `assigned_to` is just an integer
+- **No ORM Relationships**: Cannot use `task.assignee` - user data is in different service
+- **Manual Validation**: Must validate user existence via HTTP call
+- **Separate Database Connections**: Each service has its own `db.session`
+- **No Cross-Service Joins**: Cannot join User and Task tables
+- **Eventual Consistency**: User deletion in User Service doesn't automatically update Task Service
+
+#### 4. Reusable Components and Connectors
+
+##### Layered Monolith: Shared Code Modules
+
+**Reusable Components:**
+
+1. **Repository Classes** (`database/repositories.py`):
+   - `TaskRepository`: Reusable across all task operations
+   - `UserRepository`: Reusable across all user operations
+   - `ActivityLogRepository`: Reusable for activity tracking
+   - All services can use same repository instances
+   - Shared database connection pool
+
+2. **Service Classes** (`services/`):
+   - `TaskService`: Reusable business logic
+   - `NotificationService`: Reusable notification logic
+   - Can be imported and used by routes, background jobs, CLI scripts
+   - No serialization needed - works with Python objects
+
+3. **Models** (`models.py`):
+   - Shared across all layers
+   - Can be used in repositories, services, and routes
+   - Type checking and IDE autocomplete work seamlessly
+
+4. **Configuration** (`config.py`):
+   - Single configuration file
+   - Shared by all components
+   - Environment variables loaded once
+
+**Code Reuse Example:**
+```python
+# Can use TaskService from anywhere in the application
+from services.task_service import TaskService
+
+# In routes
+task = TaskService.create_task(...)
+
+# In background job (hypothetical)
+def process_daily_tasks():
+    tasks = TaskService.get_upcoming_deadlines(7)
+    # Process tasks...
+
+# In CLI script (hypothetical)
+if __name__ == '__main__':
+    task = TaskService.create_task(...)
+```
+
+##### Microservices: HTTP Client Helpers and Service Connectors
+
+**Reusable Components:**
+
+1. **HTTP Client Helper Functions** (`frontend-service/app.py`):
+   ```python
+   def get_from_service(url, endpoint):
+       """Reusable helper for GET requests"""
+       try:
+           response = requests.get(f'{url}{endpoint}', timeout=5)
+           if response.status_code == 200:
+               return response.json()
+           return None
+       except Exception as e:
+           print(f"Error calling {url}{endpoint}: {e}")
+           return None
+   
+   def post_to_service(url, endpoint, data):
+       """Reusable helper for POST requests"""
+       # Implementation...
+   
+   def put_to_service(url, endpoint, data):
+       """Reusable helper for PUT requests"""
+       # Implementation...
+   ```
+
+2. **Service-Specific Connectors** (`task-service/app.py`):
+   ```python
+   def get_user_from_service(user_id):
+       """Connector to User Service"""
+       user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+       response = requests.get(f'{user_service_url}/api/users/{user_id}', timeout=2)
+       return response.json() if response.status_code == 200 else None
+   
+   def notify_notification_service(event_type, payload):
+       """Connector to Notification Service"""
+       notification_service_url = os.environ.get('NOTIFICATION_SERVICE_URL', 'http://notification-service:5001')
+       requests.post(f'{notification_service_url}/api/events', json={...}, timeout=2)
+   ```
+
+3. **Service URL Configuration**:
+   - Environment variables for service URLs
+   - Docker service names for service discovery
+   - Configurable per environment (dev, staging, production)
+
+**Limitations:**
+- **No Shared Code**: Each service is independent - cannot import code from other services
+- **Serialization Required**: All data must be JSON-serialized for transmission
+- **Error Handling**: Each service call must handle failures independently
+- **Code Duplication**: Similar HTTP client code may exist in multiple services
+
+#### 5. Error Handling and Resilience
+
+##### Layered Monolith: Exception Propagation
+
+**Implementation:**
+```python
+# Exception flows naturally through layers
+@app.route('/api/tasks/<int:task_id>', methods=['GET'])
+def get_task(task_id):
+    try:
+        task = TaskService.get_task_by_id(task_id)  # May raise exception
+        return jsonify(task.to_dict())
+    except Exception as e:
+        # Handle at route level
+        return jsonify({'error': str(e)}), 500
+
+# In service layer
+@staticmethod
+def get_task_by_id(task_id):
+    return TaskRepository.get_by_id_or_404(task_id)  # Raises 404 if not found
+
+# In repository layer
+@staticmethod
+def get_by_id_or_404(task_id):
+    return Task.query.get_or_404(task_id)  # Flask-SQLAlchemy raises 404
+```
+
+**Characteristics:**
+- **Unified Error Handling**: Exceptions propagate through call stack
+- **Single Error Context**: All errors occur in same process
+- **Database Rollback**: Failed transactions automatically rollback
+- **Type-Safe Errors**: Python exceptions with full stack traces
+
+##### Microservices: Distributed Error Handling
+
+**Implementation:**
+```python
+# Must handle service unavailability
+def get_user_from_service(user_id):
+    user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+    try:
+        response = requests.get(f'{user_service_url}/api/users/{user_id}', timeout=2)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except requests.exceptions.Timeout:
+        print(f"User Service timeout for user {user_id}")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"User Service unavailable")
+        return None
+    except Exception as e:
+        print(f"Failed to get user from User Service: {e}")
+        return None
+
+# In route handler
+@app.route('/api/tasks/<int:task_id>/assign', methods=['POST'])
+def assign_task(task_id):
+    user = get_user_from_service(user_id)
+    if not user:  # Must check for None
+        return jsonify({'error': 'User not found or service unavailable'}), 503
+    # Continue with assignment...
+```
+
+**Characteristics:**
+- **Network Failure Handling**: Must handle timeouts, connection errors, service unavailability
+- **Graceful Degradation**: Services may continue operating if other services fail
+- **Partial Failures**: Some operations may succeed while others fail
+- **Error Propagation**: Must manually propagate errors across service boundaries
+- **Circuit Breaker Pattern**: Could implement circuit breakers (not implemented in this project)
+
+#### 6. Configuration Management
+
+##### Layered Monolith: Single Configuration File
+
+**Implementation:**
+```python
+# config.py
+import os
+
+class Config:
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///task_manager.db')
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+# app.py
+from config import Config
+app.config.from_object(Config)
+```
+
+**Characteristics:**
+- **Single Configuration Source**: One config file for entire application
+- **Environment Variables**: Can override with environment variables
+- **Shared Settings**: All components use same configuration
+- **Simple Deployment**: One set of environment variables
+
+##### Microservices: Per-Service Configuration
+
+**Implementation:**
+```python
+# task-service/config.py
+class Config:
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'task-service-secret-key')
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///task_service.db')
+    USER_SERVICE_URL = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+    NOTIFICATION_SERVICE_URL = os.environ.get('NOTIFICATION_SERVICE_URL', 'http://notification-service:5001')
+
+# docker-compose.yml
+services:
+  task-service:
+    environment:
+      - DATABASE_URL=sqlite:///task_service.db
+      - USER_SERVICE_URL=http://user-service:5002
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5001
+```
+
+**Characteristics:**
+- **Service-Specific Configuration**: Each service has its own config
+- **Service Discovery URLs**: Must configure URLs to other services
+- **Docker Environment Variables**: Configuration via docker-compose.yml
+- **Multiple Configuration Points**: Must manage configuration for each service
+- **Network Configuration**: Must configure service URLs and ports
+
+#### 7. Testing Approaches
+
+##### Layered Monolith: Unified Testing
+
+**Implementation:**
+```python
+# tests/test_services.py
+def test_create_task():
+    task = TaskService.create_task(
+        title="Test Task",
+        created_by=1
+    )
+    assert task.title == "Test Task"
+    # Can test entire flow in one test
+    # Can use same database for all tests
+```
+
+**Characteristics:**
+- **Single Test Suite**: All tests in one test directory
+- **Shared Test Database**: Can use same test database for all tests
+- **Mock Repositories**: Easy to mock repository layer for service tests
+- **Integration Tests**: Can test entire request flow end-to-end
+- **Fast Execution**: No network calls in tests
+
+##### Microservices: Distributed Testing
+
+**Implementation:**
+```python
+# Each service has its own test suite
+# task-service/tests/test_task_service.py
+def test_create_task():
+    # Must mock HTTP calls to User Service
+    with patch('app.get_user_from_service') as mock_get_user:
+        mock_get_user.return_value = {'id': 1, 'username': 'test'}
+        # Test task creation...
+```
+
+**Characteristics:**
+- **Per-Service Test Suites**: Each service has its own tests
+- **Mock External Services**: Must mock HTTP calls to other services
+- **Integration Testing Complexity**: Requires all services running
+- **Service Isolation**: Can test services independently
+- **Network Mocking**: Must use tools like `responses` or `httpretty` to mock HTTP
+
+#### 8. Deployment and Infrastructure
+
+##### Layered Monolith: Single Deployment Unit
+
+**Deployment Process:**
+1. Install Python dependencies: `pip install -r requirements.txt`
+2. Run application: `python app.py`
+3. Single process handles all requests
+4. Single database file (SQLite) or connection (PostgreSQL)
+
+**Infrastructure Requirements:**
+- Python runtime environment
+- Virtual environment (optional but recommended)
+- Database (SQLite file or PostgreSQL server)
+- Web server (Flask development server or Gunicorn/uWSGI)
+
+##### Microservices: Containerized Multi-Service Deployment
+
+**Deployment Process:**
+1. Build Docker images for each service: `docker compose build`
+2. Start all services: `docker compose up`
+3. Docker Compose orchestrates service startup
+4. Each service runs in separate container
+5. Docker network enables service communication
+
+**Infrastructure Requirements:**
+- Docker and Docker Compose
+- Container orchestration (Docker Compose)
+- Docker networking for service communication
+- Volume management for persistent databases
+- Health checks for service monitoring
+
+**Docker Compose Configuration:**
+```yaml
+services:
+  task-service:
+    build: ./task-service
+    environment:
+      - USER_SERVICE_URL=http://user-service:5002
+    networks:
+      - task-manager-network
+    depends_on:
+      - user-service
+```
+
+#### 9. Data Model Differences
+
+##### Layered Monolith: Unified Data Model with Relationships
+
+**Models:**
+```python
+class Task(db.Model):
+    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    # SQLAlchemy relationship
+    # Can access: task.assignee.username
+
+class User(db.Model):
+    assigned_tasks = db.relationship('Task', foreign_keys='Task.assigned_to', backref='assignee')
+    # Can access: user.assigned_tasks
+```
+
+**Benefits:**
+- **Referential Integrity**: Database enforces foreign key constraints
+- **ORM Relationships**: Direct object access via relationships
+- **Join Queries**: Efficient joins across related tables
+- **Cascade Operations**: Can cascade deletes/updates
+
+##### Microservices: Distributed Data Model with ID References
+
+**Task Service Models:**
+```python
+class Task(db.Model):
+    assigned_to = db.Column(db.Integer, nullable=True)  # Just an integer, no foreign key
+    # Cannot access: task.assignee (user data is in different service)
+    # Must make HTTP call to get user details
+```
+
+**User Service Models:**
+```python
+class User(db.Model):
+    # No relationship to tasks (tasks are in different service)
+    # Cannot access: user.assigned_tasks
+```
+
+**Implications:**
+- **No Referential Integrity**: Database cannot enforce cross-service relationships
+- **Manual Validation**: Must validate user existence via HTTP call
+- **Data Duplication Risk**: May need to cache user data in Task Service
+- **Consistency Challenges**: User deletion doesn't automatically update tasks
+
+#### 10. Summary of Key Implementation Differences
+
+| Aspect | Layered Monolith | Microservices |
+|--------|-----------------|---------------|
+| **Code Organization** | Single codebase with layers | Multiple independent codebases |
+| **Communication** | In-process function calls | HTTP REST API calls |
+| **Data Access** | Repository pattern with shared DB | Direct queries with service boundaries |
+| **Models** | Unified models with relationships | Distributed models with ID references |
+| **Reusable Components** | Shared Python modules | HTTP client helpers and connectors |
+| **Error Handling** | Exception propagation | Distributed error handling |
+| **Configuration** | Single config file | Per-service configuration |
+| **Testing** | Unified test suite | Per-service test suites with mocking |
+| **Deployment** | Single application | Containerized multi-service |
+| **Transaction Management** | ACID transactions | Eventual consistency |
+| **Type Safety** | Full Python type checking | JSON serialization required |
+| **Performance** | Sub-millisecond latency | Network latency (1-10ms per call) |
+
 ### Architecture Design Decisions
 
 #### Layered Monolith Design Decisions
