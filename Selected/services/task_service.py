@@ -9,6 +9,39 @@ class TaskService:
     """Service layer for task operations."""
     
     @staticmethod
+    def _format_field_name(field_name):
+        """Convert field names to user-friendly format."""
+        field_map = {
+            'due_date': 'due date',
+            'assigned_to': 'assigned to',
+            'created_by': 'created by',
+            'updated_by': 'updated by'
+        }
+        return field_map.get(field_name, field_name.replace('_', ' '))
+    
+    @staticmethod
+    def _format_value(value, field_name=''):
+        """Format values for display in activity logs."""
+        if value is None:
+            return 'not set'
+        if isinstance(value, datetime):
+            # Format datetime as readable date and time
+            return value.strftime('%B %d, %Y at %I:%M %p')
+        if field_name == 'assigned_to':
+            # Handle user assignment - value could be int (user_id) or User object
+            user_id = value
+            if hasattr(value, 'id'):
+                user_id = value.id
+            if isinstance(user_id, int):
+                # Try to get username if it's a user ID
+                try:
+                    user = UserRepository.get_by_id(user_id)
+                    return user.username if user else f'user {user_id}'
+                except:
+                    return f'user {user_id}'
+        return str(value)
+    
+    @staticmethod
     def create_task(title, description, priority='medium', due_date=None, assigned_to=None, created_by=None):
         """Create a new task."""
         # Use repository for data access
@@ -45,7 +78,12 @@ class TaskService:
             if hasattr(task, key) and getattr(task, key) != value:
                 old_value = getattr(task, key)
                 update_data[key] = value
-                changes.append(f"{key} changed from {old_value} to {value}")
+                
+                # Format the change message
+                field_name = TaskService._format_field_name(key)
+                old_formatted = TaskService._format_value(old_value, key)
+                new_formatted = TaskService._format_value(value, key)
+                changes.append(f"{field_name} was changed from {old_formatted} to {new_formatted}")
         
         # Update using repository
         if update_data:
@@ -64,21 +102,37 @@ class TaskService:
     
     @staticmethod
     def assign_task(task_id, user_id, assigned_by=None):
-        """Assign a task to a user."""
-        # Get task and user using repositories
+        """Assign a task to a user, or unassign if user_id is None."""
+        # Get task using repository
         task = TaskRepository.get_by_id_or_404(task_id)
-        user = UserRepository.get_by_id_or_404(user_id)
+        
+        old_assignee = task.assignee.username if task.assignee else None
         
         # Update assignment using repository
         task = TaskRepository.update(task, assigned_to=user_id)
         
         # Log activity using repository
-        ActivityLogRepository.create(
-            task_id=task.id,
-            action='assigned',
-            description=f'Task assigned to {user.username}',
-            user_id=assigned_by
-        )
+        if user_id is None:
+            # Unassignment
+            description = 'Task unassigned' if old_assignee else 'Task remains unassigned'
+            ActivityLogRepository.create(
+                task_id=task.id,
+                action='updated',
+                description=description,
+                user_id=assigned_by
+            )
+        else:
+            # Assignment
+            user = UserRepository.get_by_id_or_404(user_id)
+            description = f'Task assigned to {user.username}'
+            if old_assignee:
+                description = f'Task reassigned from {old_assignee} to {user.username}'
+            ActivityLogRepository.create(
+                task_id=task.id,
+                action='assigned',
+                description=description,
+                user_id=assigned_by
+            )
         
         return task
     

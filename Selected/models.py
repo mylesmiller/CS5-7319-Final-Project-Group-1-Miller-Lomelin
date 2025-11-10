@@ -54,6 +54,7 @@ class Task(db.Model):
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'assigned_to': self.assigned_to,
+            'assigned_to_username': self.assignee.username if self.assignee else None,
             'created_by': self.created_by
         }
 

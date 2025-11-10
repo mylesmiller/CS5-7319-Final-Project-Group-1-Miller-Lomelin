@@ -39,6 +39,12 @@ def register_routes(app):
         tasks_dict = [task.to_dict() for task in tasks]
         return render_template('calendar.html', tasks=tasks_dict)
     
+    @app.route('/users')
+    def users():
+        """Users/Team members view."""
+        users = UserRepository.get_all()
+        return render_template('users.html', users=users)
+    
     @app.route('/api/tasks', methods=['GET'])
     def get_tasks():
         """API endpoint to get all tasks."""
@@ -101,7 +107,8 @@ def register_routes(app):
     def assign_task(task_id):
         """API endpoint to assign a task."""
         data = request.json
-        task = TaskService.assign_task(task_id, data['user_id'], assigned_by=data.get('assigned_by'))
+        user_id = data.get('user_id')  # Can be None for unassignment
+        task = TaskService.assign_task(task_id, user_id, assigned_by=data.get('assigned_by'))
         return jsonify(task.to_dict())
     
     @app.route('/api/notifications')
@@ -172,13 +179,25 @@ def register_routes(app):
     def create_user():
         """API endpoint to create a user."""
         data = request.json
-        user = UserRepository.create(
-            username=data['username'],
-            email=data['email']
-        )
-        return jsonify({
-            'id': user.id,
-            'username': user.username,
-            'email': user.email
-        }), 201
+        try:
+            user = UserRepository.create(
+                username=data['username'],
+                email=data['email']
+            )
+            return jsonify({
+                'id': user.id,
+                'username': user.username,
+                'email': user.email
+            }), 201
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
+    
+    @app.route('/api/users/<int:user_id>', methods=['DELETE'])
+    def delete_user(user_id):
+        """API endpoint to delete a user."""
+        try:
+            UserRepository.delete(user_id)
+            return jsonify({'message': 'User deleted successfully'}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 404
 

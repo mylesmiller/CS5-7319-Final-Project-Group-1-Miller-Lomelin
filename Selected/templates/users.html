@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Users - Task Management System{% endblock %}
+
+{% block content %}
+<div class="users-page">
+    <div class="page-header">
+        <h2>Team Members</h2>
+        <button class="btn btn-primary" onclick="showCreateUserModal()">Add New Member</button>
+    </div>
+    
+    <div class="users-list">
+        {% for user in users %}
+        <div class="user-card" data-user-id="{{ user.id }}">
+            <div class="user-header">
+                <h3>{{ user.username }}</h3>
+                <span class="user-id">ID: {{ user.id }}</span>
+            </div>
+            <div class="user-info">
+                <p class="user-email"><strong>Email:</strong> {{ user.email }}</p>
+                <p class="user-created"><strong>Member since:</strong> {{ user.created_at.strftime('%B %d, %Y') }}</p>
+                {% if user.assigned_tasks %}
+                <p class="user-tasks"><strong>Assigned tasks:</strong> {{ user.assigned_tasks|length }}</p>
+                {% else %}
+                <p class="user-tasks"><strong>Assigned tasks:</strong> 0</p>
+                {% endif %}
+            </div>
+            <div class="user-actions">
+                <button class="btn btn-sm btn-danger" onclick="deleteUser({{ user.id }}, '{{ user.username }}')">Delete</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% if not users %}
+        <div class="empty-state">
+            <p>No team members yet. Click "Add New Member" to create one.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div id="userModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeUserModal()">&times;</span>
+        <h3 id="userModalTitle">Add New Team Member</h3>
+        <form id="userForm">
+            <div class="form-group">
+                <label for="userUsername">Username *</label>
+                <input type="text" id="userUsername" required>
+            </div>
+            <div class="form-group">
+                <label for="userEmail">Email *</label>
+                <input type="email" id="userEmail" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create Member</button>
+                <button type="button" class="btn" onclick="closeUserModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('userForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        createUser();
+    });
+</script>
+{% endblock %}
+

@@ -4,58 +4,111 @@
 
 {% block content %}
 <div class="dashboard">
-    <h2>Dashboard</h2>
+    <div class="dashboard-header">
+        <h2>Dashboard</h2>
+        <p class="dashboard-subtitle">Welcome back! Here's what's happening with your tasks.</p>
+    </div>
     
     <div class="dashboard-stats">
-        <div class="stat-card">
-            <h3>Total Tasks</h3>
-            <p class="stat-number">{{ tasks|length }}</p>
+        <div class="stat-card stat-card-total">
+            <div class="stat-icon">📋</div>
+            <div class="stat-content">
+                <h3>Total Tasks</h3>
+                <p class="stat-number" data-count="{{ tasks|length }}">0</p>
+            </div>
         </div>
-        <div class="stat-card">
-            <h3>Pending</h3>
-            <p class="stat-number">{{ tasks|selectattr('status', 'equalto', 'pending')|list|length }}</p>
+        <div class="stat-card stat-card-pending">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-content">
+                <h3>Pending</h3>
+                <p class="stat-number" data-count="{{ tasks|selectattr('status', 'equalto', 'pending')|list|length }}">0</p>
+            </div>
         </div>
-        <div class="stat-card">
-            <h3>In Progress</h3>
-            <p class="stat-number">{{ tasks|selectattr('status', 'equalto', 'in_progress')|list|length }}</p>
+        <div class="stat-card stat-card-progress">
+            <div class="stat-icon">🚀</div>
+            <div class="stat-content">
+                <h3>In Progress</h3>
+                <p class="stat-number" data-count="{{ tasks|selectattr('status', 'equalto', 'in_progress')|list|length }}">0</p>
+            </div>
         </div>
-        <div class="stat-card">
-            <h3>Completed</h3>
-            <p class="stat-number">{{ tasks|selectattr('status', 'equalto', 'completed')|list|length }}</p>
+        <div class="stat-card stat-card-completed">
+            <div class="stat-icon">✅</div>
+            <div class="stat-content">
+                <h3>Completed</h3>
+                <p class="stat-number" data-count="{{ tasks|selectattr('status', 'equalto', 'completed')|list|length }}">0</p>
+            </div>
+        </div>
+    </div>
+    
+    {% set total_tasks = tasks|length %}
+    {% set completed_tasks = tasks|selectattr('status', 'equalto', 'completed')|list|length %}
+    {% set completion_percentage = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0 %}
+    
+    <div class="dashboard-progress-section">
+        <div class="progress-card">
+            <h3>Overall Progress</h3>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ completion_percentage }}%"></div>
+                </div>
+                <div class="progress-text">
+                    <span class="progress-percentage">{{ "%.0f"|format(completion_percentage) }}%</span>
+                    <span class="progress-details">{{ completed_tasks }} of {{ total_tasks }} tasks completed</span>
+                </div>
+            </div>
         </div>
     </div>
     
     <div class="dashboard-sections">
-        <div class="section">
-            <h3>Upcoming Deadlines</h3>
+        <div class="section section-deadlines">
+            <div class="section-header">
+                <h3>⏰ Upcoming Deadlines</h3>
+            </div>
             <div class="notifications">
                 {% if notifications %}
                     {% for notification in notifications %}
                     <div class="notification alert" data-due-date="{{ notification.due_date }}" data-task-id="{{ notification.task_id }}" data-task-title="{{ notification.task_title }}">
-                        <strong class="notification-message">{{ notification.message }}</strong>
-                        <span class="notification-date">Due: {{ notification.due_date[:10] }}</span>
-                        <span class="notification-time-remaining" data-total-seconds="{{ notification.total_seconds }}"></span>
+                        <div class="notification-icon">🔔</div>
+                        <div class="notification-content">
+                            <strong class="notification-message">{{ notification.message }}</strong>
+                            <span class="notification-date">Due: {{ notification.due_date[:10] }}</span>
+                            <span class="notification-time-remaining" data-total-seconds="{{ notification.total_seconds }}"></span>
+                        </div>
                     </div>
                     {% endfor %}
                 {% else %}
-                    <p>No upcoming deadlines</p>
+                    <div class="empty-state-small">
+                        <p>🎉 No upcoming deadlines! You're all caught up.</p>
+                    </div>
                 {% endif %}
             </div>
         </div>
         
-        <div class="section">
-            <h3>Recent Activity</h3>
+        <div class="section section-activity">
+            <div class="section-header">
+                <h3>📊 Recent Activity</h3>
+            </div>
             <div class="activity-log">
                 {% if recent_activity %}
                     {% for activity in recent_activity %}
                     <div class="activity-item">
-                        <span class="activity-action">{{ activity.action|title }}</span>
-                        <span class="activity-description">{{ activity.description }}</span>
-                        <span class="activity-time">{{ activity.created_at[:19] }}</span>
+                        <div class="activity-icon">
+                            {% if activity.action == 'created' %}✨
+                            {% elif activity.action == 'updated' %}🔄
+                            {% elif activity.action == 'assigned' %}👤
+                            {% else %}📝{% endif %}
+                        </div>
+                        <div class="activity-content">
+                            <span class="activity-action">{{ activity.action|title }}</span>
+                            <span class="activity-description">{{ activity.description }}</span>
+                            <span class="activity-time">{{ activity.created_at[:19] }}</span>
+                        </div>
                     </div>
                     {% endfor %}
                 {% else %}
-                    <p>No recent activity</p>
+                    <div class="empty-state-small">
+                        <p>No recent activity</p>
+                    </div>
                 {% endif %}
             </div>
         </div>
@@ -65,8 +118,32 @@
 
 {% block scripts %}
 <script>
-// Real-time countdown for deadline notifications
+// Animate stat numbers
 document.addEventListener('DOMContentLoaded', function() {
+    // Animate stat numbers
+    function animateValue(element, start, end, duration) {
+        let startTimestamp = null;
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+            element.textContent = Math.floor(easeOutQuart * (end - start) + start);
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            } else {
+                element.textContent = end;
+            }
+        };
+        window.requestAnimationFrame(step);
+    }
+    
+    const statNumbers = document.querySelectorAll('.stat-number[data-count]');
+    statNumbers.forEach(stat => {
+        const targetValue = parseInt(stat.getAttribute('data-count'));
+        animateValue(stat, 0, targetValue, 1000);
+    });
+    
+    // Real-time countdown for deadline notifications
     const notifications = document.querySelectorAll('.notification[data-due-date]');
     
     function updateCountdowns() {
@@ -74,6 +151,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const dueDateStr = notification.getAttribute('data-due-date');
             const taskTitle = notification.getAttribute('data-task-title') || 'Task';
             const messageElement = notification.querySelector('.notification-message');
+            const timeRemainingElement = notification.querySelector('.notification-time-remaining');
             
             if (!dueDateStr) return;
             
@@ -83,6 +161,10 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (timeRemaining <= 0) {
                 messageElement.textContent = `Task "${taskTitle}" is overdue!`;
+                if (timeRemainingElement) {
+                    timeRemainingElement.textContent = 'OVERDUE';
+                    timeRemainingElement.style.color = '#e74c3c';
+                }
                 return;
             }
             
@@ -106,6 +188,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             messageElement.textContent = message;
+            
+            // Update time remaining badge
+            if (timeRemainingElement) {
+                if (days > 0) {
+                    timeRemainingElement.textContent = `${days}d ${hours}h remaining`;
+                } else if (hours > 0) {
+                    timeRemainingElement.textContent = `${hours}h ${minutes}m remaining`;
+                } else {
+                    timeRemainingElement.textContent = `${minutes}m ${seconds}s remaining`;
+                }
+            }
         });
     }
     
