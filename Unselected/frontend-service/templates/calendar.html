@@ -7,15 +7,49 @@
     <h2>Calendar View</h2>
     <div id="calendar"></div>
 </div>
+
+<!-- Task Details Modal for Calendar -->
+<div id="calendarTaskModal" class="modal">
+    <div class="modal-content calendar-task-modal">
+        <span class="close" onclick="closeCalendarTaskModal()">&times;</span>
+        <h3>Task Details</h3>
+        <div class="task-details-content">
+            <div class="task-detail-row">
+                <strong>ID:</strong> <span id="calendarTaskId"></span>
+            </div>
+            <div class="task-detail-row">
+                <strong>Title:</strong> <span id="calendarTaskTitle"></span>
+            </div>
+            <div class="task-detail-row">
+                <strong>Description:</strong> <div id="calendarTaskDescription" class="task-description-text"></div>
+            </div>
+            <div class="task-detail-row">
+                <strong>Status:</strong> <span id="calendarTaskStatus" class="status-badge"></span>
+            </div>
+            <div class="task-detail-row">
+                <strong>Priority:</strong> <span id="calendarTaskPriority" class="priority-badge"></span>
+            </div>
+            <div class="task-detail-row">
+                <strong>Due Date:</strong> <span id="calendarTaskDueDate"></span>
+            </div>
+            <div class="task-detail-row" id="calendarTaskAssigneeRow" style="display: none;">
+                <strong>Assigned To:</strong> <span id="calendarTaskAssignee"></span>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn btn-primary" onclick="window.location.href='/tasks'">View All Tasks</button>
+            <button type="button" class="btn" onclick="closeCalendarTaskModal()">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // Simple calendar implementation
+    // Calendar implementation
     document.addEventListener('DOMContentLoaded', function() {
         const tasks = {{ tasks|tojson }};
         renderCalendar(tasks);
     });
 </script>
 {% endblock %}
-

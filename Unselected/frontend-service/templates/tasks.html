@@ -63,8 +63,9 @@
                 </select>
             </div>
             <div class="form-group">
-                <label for="taskDueDate">Due Date</label>
-                <input type="datetime-local" id="taskDueDate">
+                <label for="taskDueDate">Due Date & Time</label>
+                <input type="date" id="taskDueDate">
+                <input type="time" id="taskDueTime">
             </div>
             <div class="form-group">
                 <label for="taskStatus">Status</label>
@@ -90,6 +91,27 @@
         </form>
     </div>
 </div>
+
+<!-- Assign Task Modal -->
+<div id="assignModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeAssignModal()">&times;</span>
+        <h3>Assign Task</h3>
+        <form id="assignForm" onsubmit="event.preventDefault(); saveAssignment();">
+            <input type="hidden" id="assignTaskId">
+            <div class="form-group">
+                <label for="assignUserSelect">Assign To</label>
+                <select id="assignUserSelect">
+                    <option value="">Loading users...</option>
+                </select>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Assign</button>
+                <button type="button" class="btn" onclick="closeAssignModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -100,4 +122,3 @@
     });
 </script>
 {% endblock %}
-

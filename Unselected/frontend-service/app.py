@@ -71,7 +71,14 @@ def delete_from_service(url, endpoint):
 def index():
     """Dashboard view."""
     # Get tasks
-    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks') or []
+    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks?include_username=true') or []
+    # Enrich tasks with usernames if not already included
+    if tasks:
+        users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+        user_lookup = {user['id']: user['username'] for user in users}
+        for task in tasks:
+            if task.get('assigned_to') and not task.get('assigned_to_username'):
+                task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
     
     # Get upcoming tasks and format as notifications
     upcoming_tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks/upcoming?days=7') or []
@@ -135,21 +142,40 @@ def index():
 @app.route('/tasks')
 def tasks():
     """Task list view."""
-    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks') or []
+    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks?include_username=true') or []
     users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+    # Enrich tasks with usernames if not already included
+    if tasks:
+        user_lookup = {user['id']: user['username'] for user in users}
+        for task in tasks:
+            if task.get('assigned_to') and not task.get('assigned_to_username'):
+                task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
     return render_template('tasks.html', tasks=tasks, users=users)
 
 @app.route('/calendar')
 def calendar():
     """Calendar view."""
-    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks') or []
+    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks?include_username=true') or []
+    # Enrich tasks with usernames if not already included
+    if tasks:
+        users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+        user_lookup = {user['id']: user['username'] for user in users}
+        for task in tasks:
+            if task.get('assigned_to') and not task.get('assigned_to_username'):
+                task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
     return render_template('calendar.html', tasks=tasks)
 
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
     """API endpoint to get all tasks."""
-    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks')
+    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks?include_username=true')
     if tasks is not None:
+        # Enrich with usernames if not already included
+        users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+        user_lookup = {user['id']: user['username'] for user in users}
+        for task in tasks:
+            if task.get('assigned_to') and not task.get('assigned_to_username'):
+                task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
         return jsonify(tasks), 200
     return jsonify({'error': 'Task service unavailable'}), 503
 
@@ -165,8 +191,13 @@ def create_task():
 @app.route('/api/tasks/<int:task_id>', methods=['GET'])
 def get_task(task_id):
     """API endpoint to get a specific task."""
-    task = get_from_service(TASK_SERVICE_URL, f'/api/tasks/{task_id}')
+    task = get_from_service(TASK_SERVICE_URL, f'/api/tasks/{task_id}?include_username=true')
     if task is not None:
+        # Enrich with username if not already included
+        if task.get('assigned_to') and not task.get('assigned_to_username'):
+            users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+            user_lookup = {user['id']: user['username'] for user in users}
+            task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
         return jsonify(task), 200
     return jsonify({'error': 'Task not found'}), 404
 
@@ -174,9 +205,15 @@ def get_task(task_id):
 def update_task(task_id):
     """API endpoint to update a task."""
     data = request.json
-    response = put_to_service(TASK_SERVICE_URL, f'/api/tasks/{task_id}', data)
+    response = put_to_service(TASK_SERVICE_URL, f'/api/tasks/{task_id}?include_username=true', data)
     if response and response.status_code == 200:
-        return jsonify(response.json()), 200
+        task = response.json()
+        # Enrich with username if not already included
+        if task.get('assigned_to') and not task.get('assigned_to_username'):
+            users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+            user_lookup = {user['id']: user['username'] for user in users}
+            task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
+        return jsonify(task), 200
     return jsonify({'error': 'Failed to update task'}), response.status_code if response else 503
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
@@ -191,9 +228,15 @@ def delete_task(task_id):
 def assign_task(task_id):
     """API endpoint to assign a task."""
     data = request.json
-    response = post_to_service(TASK_SERVICE_URL, f'/api/tasks/{task_id}/assign', data)
+    response = post_to_service(TASK_SERVICE_URL, f'/api/tasks/{task_id}/assign?include_username=true', data)
     if response and response.status_code == 200:
-        return jsonify(response.json()), 200
+        task = response.json()
+        # Enrich with username if not already included
+        if task.get('assigned_to') and not task.get('assigned_to_username'):
+            users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+            user_lookup = {user['id']: user['username'] for user in users}
+            task['assigned_to_username'] = user_lookup.get(task['assigned_to'])
+        return jsonify(task), 200
     return jsonify({'error': 'Failed to assign task'}), response.status_code if response else 503
 
 @app.route('/api/notifications')
@@ -291,6 +334,41 @@ def create_user():
     if response and response.status_code == 201:
         return jsonify(response.json()), 201
     return jsonify({'error': 'Failed to create user'}), response.status_code if response else 503
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    """API endpoint to delete a user."""
+    response = delete_from_service(USER_SERVICE_URL, f'/api/users/{user_id}')
+    if response and response.status_code == 200:
+        return jsonify({'message': 'User deleted successfully'}), 200
+    return jsonify({'error': 'Failed to delete user'}), response.status_code if response else 503
+
+@app.route('/users')
+def users():
+    """Users/Team members view."""
+    users = get_from_service(USER_SERVICE_URL, '/api/users') or []
+    # Get tasks to count assigned tasks per user
+    tasks = get_from_service(TASK_SERVICE_URL, '/api/tasks') or []
+    
+    # Count assigned tasks per user
+    task_counts = {}
+    for task in tasks:
+        assigned_to = task.get('assigned_to')
+        if assigned_to:
+            task_counts[assigned_to] = task_counts.get(assigned_to, 0) + 1
+    
+    # Add task count to each user
+    for user in users:
+        user['assigned_tasks'] = task_counts.get(user.get('id'), 0)
+        # Format created_at if it's a string
+        if isinstance(user.get('created_at'), str):
+            try:
+                dt = datetime.fromisoformat(user['created_at'].replace('Z', '+00:00'))
+                user['created_at'] = dt
+            except:
+                pass
+    
+    return render_template('users.html', users=users)
 
 @app.route('/health')
 def health():

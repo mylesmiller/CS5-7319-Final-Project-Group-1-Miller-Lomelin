@@ -28,9 +28,9 @@ class Task(db.Model):
     def __repr__(self):
         return f'<Task {self.title}>'
     
-    def to_dict(self):
+    def to_dict(self, include_username=False, user_service_url=None):
         """Convert task to dictionary."""
-        return {
+        result = {
             'id': self.id,
             'title': self.title,
             'description': self.description,
@@ -42,6 +42,19 @@ class Task(db.Model):
             'assigned_to': self.assigned_to,
             'created_by': self.created_by
         }
+        
+        # Optionally include username if requested and user_id exists
+        if include_username and self.assigned_to and user_service_url:
+            try:
+                import requests
+                response = requests.get(f'{user_service_url}/api/users/{self.assigned_to}', timeout=1)
+                if response.status_code == 200:
+                    user = response.json()
+                    result['assigned_to_username'] = user.get('username')
+            except:
+                pass  # Silently fail if user service is unavailable
+        
+        return result
 
 class ActivityLog(db.Model):
     """Activity log model."""

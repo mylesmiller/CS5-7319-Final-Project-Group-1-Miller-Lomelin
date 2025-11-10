@@ -22,6 +22,35 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+# Helper functions for formatting
+def format_field_name(field_name):
+    """Convert field names to user-friendly format."""
+    field_map = {
+        'due_date': 'due date',
+        'assigned_to': 'assigned to',
+        'created_by': 'created by',
+        'updated_by': 'updated by'
+    }
+    return field_map.get(field_name, field_name.replace('_', ' '))
+
+def format_value(value, field_name='', user_service_url=None):
+    """Format values for display in activity logs."""
+    if value is None:
+        return 'not set'
+    if isinstance(value, datetime):
+        # Format datetime as readable date and time
+        return value.strftime('%B %d, %Y at %I:%M %p')
+    if field_name == 'assigned_to':
+        # Handle user assignment - value is user_id (int)
+        if isinstance(value, int):
+            # Try to get username from User Service
+            try:
+                user = get_user_from_service(value)
+                return user['username'] if user else f'user {value}'
+            except:
+                return f'user {value}'
+    return str(value)
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint."""
@@ -31,7 +60,9 @@ def health():
 def get_tasks():
     """Get all tasks."""
     tasks = Task.query.all()
-    return jsonify([task.to_dict() for task in tasks]), 200
+    user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+    include_username = request.args.get('include_username', 'false').lower() == 'true'
+    return jsonify([task.to_dict(include_username=include_username, user_service_url=user_service_url) for task in tasks]), 200
 
 @app.route('/api/tasks', methods=['POST'])
 def create_task():
@@ -80,48 +111,77 @@ def create_task():
         'assigned_to': task.assigned_to
     })
     
-    return jsonify(task.to_dict()), 201
+    user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+    include_username = request.args.get('include_username', 'false').lower() == 'true'
+    return jsonify(task.to_dict(include_username=include_username, user_service_url=user_service_url)), 201
 
 @app.route('/api/tasks/<int:task_id>', methods=['GET'])
 def get_task(task_id):
     """Get a specific task."""
     task = Task.query.get_or_404(task_id)
-    return jsonify(task.to_dict()), 200
+    user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
+    include_username = request.args.get('include_username', 'false').lower() == 'true'
+    return jsonify(task.to_dict(include_username=include_username, user_service_url=user_service_url)), 200
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
 def update_task(task_id):
     """Update a task."""
     task = Task.query.get_or_404(task_id)
     data = request.json
+    user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
     
     changes = []
-    if 'title' in data and task.title != data['title']:
-        changes.append(f"title changed from {task.title} to {data['title']}")
-        task.title = data['title']
-    if 'description' in data:
-        task.description = data['description']
-    if 'status' in data and task.status != data['status']:
-        changes.append(f"status changed from {task.status} to {data['status']}")
-        old_status = task.status
-        task.status = data['status']
-        # Notify on status change
+    update_data = {}
+    
+    # Track old status for notification
+    old_status_for_notification = None
+    
+    # Track changes for activity log
+    for key, value in data.items():
+        if key in ['title', 'description', 'status', 'priority', 'due_date', 'assigned_to']:
+            old_value = getattr(task, key, None)
+            
+            # Handle special cases
+            if key == 'due_date':
+                new_value = datetime.fromisoformat(value.replace('Z', '+00:00')) if value else None
+            elif key == 'assigned_to':
+                # Validate user ID if provided
+                if value and not validate_user_id(value):
+                    return jsonify({'error': 'Invalid assigned_to user ID'}), 400
+                new_value = value
+            else:
+                new_value = value
+            
+            # Check if value actually changed
+            if old_value != new_value:
+                update_data[key] = new_value
+                
+                # Store old status for notification
+                if key == 'status':
+                    old_status_for_notification = old_value
+                
+                # Format the change message
+                field_name = format_field_name(key)
+                old_formatted = format_value(old_value, key, user_service_url)
+                new_formatted = format_value(new_value, key, user_service_url)
+                changes.append(f"{field_name} was changed from {old_formatted} to {new_formatted}")
+    
+    # Apply updates
+    for key, value in update_data.items():
+        if key == 'due_date':
+            task.due_date = value
+        elif key == 'assigned_to':
+            task.assigned_to = value
+        else:
+            setattr(task, key, value)
+    
+    # Notify on status change
+    if 'status' in update_data and old_status_for_notification:
         notify_notification_service('task_status_changed', {
             'task_id': task.id,
-            'old_status': old_status,
-            'new_status': data['status']
+            'old_status': old_status_for_notification.replace('_', ' ').title(),
+            'new_status': update_data['status']
         })
-    if 'priority' in data:
-        task.priority = data['priority']
-    if 'due_date' in data:
-        new_due_date = datetime.fromisoformat(data['due_date'].replace('Z', '+00:00')) if data['due_date'] else None
-        if task.due_date != new_due_date:
-            changes.append(f"due_date changed")
-        task.due_date = new_due_date
-    if 'assigned_to' in data:
-        # Validate user ID if provided
-        if data['assigned_to'] and not validate_user_id(data['assigned_to']):
-            return jsonify({'error': 'Invalid assigned_to user ID'}), 400
-        task.assigned_to = data['assigned_to']
     
     task.updated_at = datetime.utcnow()
     db.session.commit()
@@ -137,7 +197,8 @@ def update_task(task_id):
         db.session.add(activity)
         db.session.commit()
     
-    return jsonify(task.to_dict()), 200
+    include_username = request.args.get('include_username', 'false').lower() == 'true'
+    return jsonify(task.to_dict(include_username=include_username, user_service_url=user_service_url)), 200
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
@@ -149,39 +210,70 @@ def delete_task(task_id):
 
 @app.route('/api/tasks/<int:task_id>/assign', methods=['POST'])
 def assign_task(task_id):
-    """Assign a task to a user."""
+    """Assign a task to a user, or unassign if user_id is None."""
     task = Task.query.get_or_404(task_id)
     data = request.json
-    user_id = data['user_id']
+    user_id = data.get('user_id')  # Can be None for unassignment
+    user_service_url = os.environ.get('USER_SERVICE_URL', 'http://user-service:5002')
     
-    # Validate user exists in User Service
-    user = get_user_from_service(user_id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
+    old_assigned = task.assigned_to
+    old_user = None
+    if old_assigned:
+        old_user = get_user_from_service(old_assigned)
     
-    task.assigned_to = user_id
-    task.updated_at = datetime.utcnow()
-    db.session.commit()
+    if user_id is None:
+        # Unassignment
+        task.assigned_to = None
+        task.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        description = 'Task unassigned' if old_user else 'Task remains unassigned'
+        if old_user:
+            description = f'Task unassigned from {old_user["username"]}'
+        
+        activity = ActivityLog(
+            task_id=task.id,
+            action='updated',
+            description=description,
+            user_id=data.get('assigned_by')
+        )
+        db.session.add(activity)
+        db.session.commit()
+    else:
+        # Assignment
+        user = get_user_from_service(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        task.assigned_to = user_id
+        task.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        # Log activity
+        if old_user:
+            description = f'Task reassigned from {old_user["username"]} to {user["username"]}'
+        else:
+            description = f'Task assigned to {user["username"]}'
+        
+        activity = ActivityLog(
+            task_id=task.id,
+            action='assigned',
+            description=description,
+            user_id=data.get('assigned_by')
+        )
+        db.session.add(activity)
+        db.session.commit()
+        
+        # Notify notification service
+        notify_notification_service('task_assigned', {
+            'task_id': task.id,
+            'task_title': task.title,
+            'assigned_to': user_id,
+            'user_email': user['email']
+        })
     
-    # Log activity
-    activity = ActivityLog(
-        task_id=task.id,
-        action='assigned',
-        description=f'Task assigned to {user["username"]}',
-        user_id=data.get('assigned_by')
-    )
-    db.session.add(activity)
-    db.session.commit()
-    
-    # Notify notification service
-    notify_notification_service('task_assigned', {
-        'task_id': task.id,
-        'task_title': task.title,
-        'assigned_to': user_id,
-        'user_email': user['email']
-    })
-    
-    return jsonify(task.to_dict()), 200
+    include_username = request.args.get('include_username', 'false').lower() == 'true'
+    return jsonify(task.to_dict(include_username=include_username, user_service_url=user_service_url)), 200
 
 @app.route('/api/tasks/upcoming', methods=['GET'])
 def get_upcoming_tasks():
