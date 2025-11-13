@@ -1460,14 +1460,14 @@ This project implements a task management system using two different architectur
 
 Both architectures implement the same core features:
 
-- ✅ Create, edit, and manage tasks
-- ✅ Assign tasks to team members
-- ✅ Track progress with status updates
-- ✅ Dashboard with statistics
-- ✅ Calendar view for deadlines
-- ✅ In-app notifications for upcoming deadlines
-- ✅ Activity log of all task updates
-- ✅ CSV export functionality
+-  Create, edit, and manage tasks
+-  Assign tasks to team members
+-  Track progress with status updates
+-  Dashboard with statistics
+-  Calendar view for deadlines
+-  In-app notifications for upcoming deadlines
+-  Activity log of all task updates
+-  CSV export functionality
 
 ### Technology Stack
 
@@ -1780,6 +1780,6 @@ Group 1 - Miller & Lomelin
 
 ---
 
-**Last Updated**: 2024  
+**Last Updated**: 2025  
 **Project**: CS5-7319 Final Project - Group 1 (Miller & Lomelin)  
 **Architectures**: Layered Monolith (Selected) | Microservices (Unselected)
