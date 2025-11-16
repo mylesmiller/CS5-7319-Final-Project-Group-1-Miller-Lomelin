@@ -630,4 +630,4 @@ Both architectures implement:
 
 **Project**: CS5-7319 Final Project - Group 1 (Miller & Lomelin)  
 **Architectures**: Layered Monolith (Selected) | Microservices (Unselected)  
-**Last Updated**: 2024
+**Last Updated**: 2025
